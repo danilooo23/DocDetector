@@ -142,7 +142,7 @@ if __name__ == "__main__":
 
     print("\n==== CLASIFICADOR C2 (PCA + LDA) ====")
 
-    VCR_train, VCR_test = aplicar_pca_lda(VC_train, E_train, VC_test, n_pca=40, n_lda=3)
+    VCR_train, VCR_test = aplicar_pca_lda(VC_train, E_train, VC_test, n_pca=55, n_lda=3)
     svm_c2 = entrenar_svm_c2(VCR_train, E_train)
 
     pred_c2 = evaluar_svm_opencv(svm_c2, VCR_test, E_test)
