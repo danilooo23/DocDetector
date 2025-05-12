@@ -5,6 +5,8 @@ from sklearn.metrics import classification_report, confusion_matrix
 from collections import defaultdict
 from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
 from sklearn.decomposition import PCA
+from sklearn.preprocessing import StandardScaler
+from scanner import scanner
 
 
 IMG_WIDTH, IMG_HEIGHT = 400, 300
@@ -18,27 +20,62 @@ CLASS_LABELS = {
     'Tickets': 4
 }
 
-def cargar_datos(directorio_base):
-    VC = []
-    E = []
+def cargar_imagen(ruta):
+    img = cv2.imread(ruta, cv2.IMREAD_GRAYSCALE)
+    img = cv2.resize(img, (IMG_WIDTH, IMG_HEIGHT))
+    return img.flatten()
 
-    for clase, etiqueta in CLASS_LABELS.items():
-        carpeta = os.path.join(directorio_base, clase)
-        for archivo in os.listdir(carpeta):
-            ruta = os.path.join(carpeta, archivo)
-            imagen = cv2.imread(ruta)
-            if imagen is None:
-                print(f"[ADVERTENCIA] No se pudo leer la imagen: {ruta}")
+def cargar_imagen_rectificada(ruta):
+    img = cv2.imread(ruta)
+    if img is None:
+        return None
+
+    try:
+        hoja_rectificada = scanner(img)
+    except Exception as e:
+        return None
+
+    if hoja_rectificada is None:
+        to_return = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        to_return = cv2.resize(to_return, (IMG_WIDTH, IMG_HEIGHT))
+    else:
+        to_return = cv2.cvtColor(hoja_rectificada, cv2.COLOR_BGR2GRAY)
+        to_return = cv2.resize(to_return, (IMG_WIDTH, IMG_HEIGHT))
+
+    return to_return.flatten()
+
+def cargar_datos_generico(ruta_base, funcion_carga):
+    VC_train, E_train = [], []
+    VC_test, E_test = [], []
+    no_rectificadas = 0
+
+    for clase_nombre, clase_etiqueta in CLASS_LABELS.items():
+        carpeta_entrenamiento = os.path.join(ruta_base, 'Aprendizaje', clase_nombre)
+        carpeta_test = os.path.join(ruta_base, 'Test', clase_nombre)
+
+        for archivo in os.listdir(carpeta_entrenamiento):
+            if not archivo.lower().endswith(('.jpg', '.jpeg', '.png')):
                 continue
-            imagen_redimensionada = cv2.resize(imagen, (IMG_WIDTH, IMG_HEIGHT), interpolation=cv2.INTER_LINEAR)
-            vector = (imagen_redimensionada.flatten() / 255.0).astype(np.float32)
-            VC.append(vector)
-            E.append(etiqueta)
+            ruta = os.path.join(carpeta_entrenamiento, archivo)
+            img = funcion_carga(ruta)
+            if img is not None:
+                VC_train.append(img)
+                E_train.append(clase_etiqueta)
 
-    VC = np.array(VC, dtype=np.float32)
-    E = np.array(E, dtype=np.int32)
 
-    return VC, E
+        for archivo in os.listdir(carpeta_test):
+            if not archivo.lower().endswith(('.jpg', '.jpeg', '.png')):
+                continue
+            ruta = os.path.join(carpeta_test, archivo)
+            img = funcion_carga(ruta)
+            if img is not None:
+                VC_test.append(img)
+                E_test.append(clase_etiqueta)
+
+    return (np.array(VC_train, dtype=np.float32), np.array(E_train, dtype=np.int32),
+            np.array(VC_test, dtype=np.float32), np.array(E_test, dtype=np.int32))
+
+
 
 def entrenar_svm_opencv(VC, E):
     # Crear el objeto SVM
@@ -62,6 +99,7 @@ def evaluar_svm_opencv(svm, VC_test, E_test):
     accuracy = np.mean(predicciones == E_test)
     print(f"Accuracy: {accuracy:.4f}")
 
+
     return predicciones
 
 
@@ -74,36 +112,6 @@ def mostrar_metricas(E_test, predicciones):
         "Comics", "Libros", "Manuscrito", "Mecanografiado", "Tickets"
     ]))
 
-
-
-def dividir_datos_balanceado(VC, E, n_train=120):
-    # Clasificar vectores e índices por clase
-    clase_indices = defaultdict(list)
-    for i, etiqueta in enumerate(E):
-        clase_indices[etiqueta].append(i)
-
-    # Calcular cuántos por clase
-    clases = sorted(clase_indices.keys())
-    train_por_clase = n_train // len(clases)
-    test_por_clase = (len(E) - n_train) // len(clases)
-
-    train_idx = []
-    test_idx = []
-
-    np.random.seed(42)
-    for clase in clases:
-        indices = clase_indices[clase]
-        np.random.shuffle(indices)
-        train_idx.extend(indices[:train_por_clase])
-        test_idx.extend(indices[train_por_clase:train_por_clase + test_por_clase])
-
-    # Extraer subconjuntos
-    VC_train = VC[train_idx]
-    E_train = E[train_idx]
-    VC_test = VC[test_idx]
-    E_test = E[test_idx]
-
-    return VC_train, E_train, VC_test, E_test
 
 def aplicar_pca_lda(VC_train, E_train, VC_test, n_pca=40, n_lda=2):
     # Paso 1: PCA
@@ -127,19 +135,15 @@ def entrenar_svm_c2(VCR_train, E_train):
     svm.train(VCR_train, cv2.ml.ROW_SAMPLE, E_train)
     return svm
 
-
-if __name__ == "__main__":
-    VC, E = cargar_datos("MUESTRA")
-
-    VC_train, E_train, VC_test, E_test = dividir_datos_balanceado(VC, E)
-
+def clasificador_C1(VC_train, E_train, VC_test, E_test):
+    print("==== CLASIFICADOR C1 (SVM) ====")
     svm = entrenar_svm_opencv(VC_train, E_train)
 
     pred = evaluar_svm_opencv(svm, VC_test, E_test)
     mostrar_metricas(E_test, pred)
     print("Predicciones por clase:", np.bincount(pred))
-    print("Clases reales:", np.bincount(E_test))
 
+def clasificador_C2(VC_train, E_train, VC_test, E_test):
     print("\n==== CLASIFICADOR C2 (PCA + LDA) ====")
 
     VCR_train, VCR_test = aplicar_pca_lda(VC_train, E_train, VC_test, n_pca=55, n_lda=3)
@@ -147,6 +151,38 @@ if __name__ == "__main__":
 
     pred_c2 = evaluar_svm_opencv(svm_c2, VCR_test, E_test)
     mostrar_metricas(E_test, pred_c2)
+
+def clasificador_C3(VC_train, E_train, VC_test, E_test):
+    print("\n==== CLASIFICADOR C3 (SVM sobre imágenes rectificadas) ====")
+    svm_c3 = entrenar_svm_opencv(VC_train, E_train)
+    pred_c3 = evaluar_svm_opencv(svm_c3, VC_test, E_test)
+    mostrar_metricas(E_test, pred_c3)
+
+def clasificador_C4(VC_train, E_train, VC_test, E_test):
+    print("\n==== CLASIFICADOR C4 (PCA + LDA sobre imágenes rectificadas) ====")
+
+    VCR3_train, VCR3_test = aplicar_pca_lda(VC_train, E_train, VC_test, n_pca=56, n_lda=3)
+
+    svm_c4 = entrenar_svm_c2(VCR3_train, E3_train)
+    pred_c4 = evaluar_svm_opencv(svm_c4, VCR3_test, E_test)
+    mostrar_metricas(E_test, pred_c4)
+
+if __name__ == "__main__":
+    scaler = StandardScaler()
+    
+    VC_train, E_train, VC_test, E_test = cargar_datos_generico("MUESTRA", cargar_imagen)
+    VC_train = scaler.fit_transform(VC_train)
+    VC_test = scaler.transform(VC_test)    
+
+    clasificador_C1(VC_train, E_train, VC_test, E_test)
+    clasificador_C2(VC_train, E_train, VC_test, E_test)
+    
+    VC3_train, E3_train, VC3_test, E3_test = cargar_datos_generico("MUESTRA", cargar_imagen_rectificada)
+    VC3_train = scaler.fit_transform(VC3_train)
+    VC3_test = scaler.transform(VC3_test)
+
+    clasificador_C3(VC3_train, E3_train, VC3_test, E3_test)
+    clasificador_C4(VC3_train, E3_train, VC3_test, E3_test)
 
 
 
