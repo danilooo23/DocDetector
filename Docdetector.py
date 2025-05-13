@@ -115,7 +115,7 @@ def main():
     acc1 = run_pipeline("Classifier C1 (SVM)", VC_train, E_train, VC_test, E_test)
     results.append({"Modelo": "C1", "Accuracy": acc1})
 
-    acc2 = run_pipeline("Classifier C2 (PCA + LDA)", VC_train, E_train, VC_test, E_test, use_pca_lda=True)
+    acc2 = run_pipeline("Classifier C2 (PCA + LDA)", VC_train, E_train, VC_test, E_test, use_pca_lda=True, pca_n=56, lda_n=3)
     results.append({"Modelo": "C2", "Accuracy": acc2})
 
     VC3_train, E3_train, VC3_test, E3_test = load_data("MUESTRA", load_rectified_image)
