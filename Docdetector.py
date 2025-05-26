@@ -6,6 +6,7 @@ from sklearn.metrics import classification_report, confusion_matrix
 from sklearn.decomposition import PCA
 from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
 from scanner import scanner
+import sys
 
 IMG_WIDTH, IMG_HEIGHT = 400, 300
 
@@ -109,6 +110,10 @@ def compare_models(results):
     print(df.to_markdown(index=False))
 
 def main():
+    if len(sys.argv) < 2:
+        print("Usage: python Docdetector.py <path_to_image>")
+        sys.exit(1)
+
     results = []
 
     VC_train, E_train, VC_test, E_test = load_data("MUESTRA", load_image)
@@ -126,6 +131,54 @@ def main():
     results.append({"Modelo": "C4", "Accuracy": acc4})
 
     compare_models(results)
+
+    image_path = sys.argv[1]
+    image_original = load_image(image_path)
+    image_rectified = load_rectified_image(image_path)
+
+    if image_original is None and image_rectified is None:
+        print(f"Error: Could not read or rectify image from {image_path}")
+        sys.exit(1)
+
+    print("\n=== CLASIFICANDO LA IMAGEN PROPORCIONADA ===")
+
+    svm_c1 = train_svm_classifier(VC_train, E_train)
+    _, pred_c1 = svm_c1.predict(np.array([image_original], dtype=np.float32))
+    print(f"C1 (SVM) Predicción: {CLASS_NAMES[int(pred_c1[0][0])]}")
+
+    pca = PCA(n_components=56)
+    VC_train_pca = pca.fit_transform(VC_train)
+    image_pca = pca.transform(np.array([image_original], dtype=np.float32))
+
+    lda = LinearDiscriminantAnalysis(n_components=3)
+    VC_train_lda = lda.fit_transform(VC_train_pca, E_train)
+    image_lda = lda.transform(image_pca)
+
+    svm_c2 = train_svm_classifier(VC_train_lda.astype(np.float32), E_train)
+    _, pred_c2 = svm_c2.predict(image_lda.astype(np.float32))
+    print(f"C2 (PCA+LDA) Predicción: {CLASS_NAMES[int(pred_c2[0][0])]}")
+
+    svm_c3 = train_svm_classifier(VC3_train, E3_train)
+    _, pred_c3 = svm_c3.predict(np.array([image_rectified], dtype=np.float32))
+    print(f"C3 (SVM Rectified) Predicción: {CLASS_NAMES[int(pred_c3[0][0])]}")
+
+    pca_r = PCA(n_components=55)
+    VC3_train_pca = pca_r.fit_transform(VC3_train)
+    image_rect_pca = pca_r.transform(np.array([image_rectified], dtype=np.float32))
+
+    lda_r = LinearDiscriminantAnalysis(n_components=3)
+    VC3_train_lda = lda_r.fit_transform(VC3_train_pca, E3_train)
+    image_rect_lda = lda_r.transform(image_rect_pca)
+
+    svm_c4 = train_svm_classifier(VC3_train_lda.astype(np.float32), E3_train)
+    _, pred_c4 = svm_c4.predict(image_rect_lda.astype(np.float32))
+    print(f"C4 (PCA+LDA Rectified) Predicción: {CLASS_NAMES[int(pred_c4[0][0])]}")
+
+        
+
+
+
+
 
 if __name__ == "__main__":
     main()
